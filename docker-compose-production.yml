@@ -1,10 +1,9 @@
 dns:
-  extends:
-    file: docker-compose-common.yml
-    service: dns
-  image: external-dns
+  image: weyforth/rancher-external-dns:latest
   environment:
     NODE_RUN_ENV: production
+    ROOT_DOMAIN: 
+    DO_ACCESS_TOKEN: 
   labels:
     io.rancher.container.create_agent: 'true'
     io.rancher.container.agent.role: 'external-dns'

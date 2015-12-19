@@ -1,0 +1,10 @@
+dns:
+  extends:
+    file: docker-compose-common.yml
+    service: dns
+  environment:
+    NODE_RUN_ENV: local
+  volumes:
+  - ./src:/usr/src/app
+  entrypoint: ./node_modules/nodemon/bin/nodemon.js
+  command: --watch /usr/src/app --legacy-watch index.js

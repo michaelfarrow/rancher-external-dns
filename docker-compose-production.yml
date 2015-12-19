@@ -1,0 +1,11 @@
+dns:
+  extends:
+    file: docker-compose-common.yml
+    service: dns
+  image: external-dns
+  environment:
+    NODE_RUN_ENV: production
+  labels:
+    io.rancher.container.create_agent: 'true'
+    io.rancher.container.agent.role: 'external-dns'
+  restart: always

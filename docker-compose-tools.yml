@@ -1,0 +1,8 @@
+npm:
+  extends:
+    file: docker-compose-common.yml
+    service: node
+  volumes:
+  - ./src:/usr/src/app
+  entrypoint: npm
+  command: --help

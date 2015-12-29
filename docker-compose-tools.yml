@@ -1,7 +1,7 @@
 npm:
   extends:
     file: docker-compose-common.yml
-    service: node
+    service: dns
   volumes:
   - ./src:/usr/src/app
   entrypoint: npm

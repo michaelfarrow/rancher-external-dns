@@ -5,8 +5,9 @@ var metadata = require('./metadata');
 var cattle = require('./cattle');
 var request = require('request');
 var http = require('http');
+var _s = require('underscore.string');
 
-console.log('starting');
+console.log('Starting external DNS service');
 
 if(!process.env.ROOT_DOMAIN)
 	throw new Error('Root domain not supplied');
@@ -30,15 +31,38 @@ var queueNextRun = function() {
 var addRemoveProviderRecords = function(domainRecords, rancherRecords) {
 	var tasks = [];
 
-	for(var i in domainRecords){
-		var domainRecord = domainRecords[i];
+	var finalRecords = [];
+	var allowed = ['A', 'SRV'];
+
+	for(i in domainRecords){
+		var record = domainRecords[i];
+
+		if(allowed.indexOf(record.type) == -1)
+			continue;
+
+		switch(record.type) {
+			case 'A':
+				if(_s.startsWith(record.name, process.env.DOMAIN_PREFIX + '.'))
+					finalRecords.push(record);
+				break;
+			case 'SRV':
+				if(_s.startsWith(record.name, '_' + process.env.DOMAIN_PREFIX + '_'))
+					finalRecords.push(record);
+				break;
+		}
+	}
+
+	for(var i in finalRecords){
+		var domainRecord = finalRecords[i];
 		var remove = true;
 
 		for(var j in rancherRecords) {
 			var rancherRecord = rancherRecords[j];
 
-			if( domainRecord.name == rancherRecord.name
+			if( domainRecord.type == rancherRecord.type
+				&& domainRecord.name == rancherRecord.name
 				&& domainRecord.data == rancherRecord.ip
+				&& domainRecord.port == rancherRecord.port
 			) {
 				remove = false;
 				rancherRecords.splice(j, 1);
@@ -55,16 +79,29 @@ var addRemoveProviderRecords = function(domainRecords, rancherRecords) {
 
 	for(var i in rancherRecords) {
 		var rancherRecord = rancherRecords[i];
-		console.log('adding ' + rancherRecord.name + ': ' + rancherRecord.ip);
-		tasks.push(provider.createDomainRecord(
-			rancherRecord.name,
-			rancherRecord.ip
-		));
-		tasks.push(cattle.createExternalDnsEvent(
-			rancherRecord.stack,
-			rancherRecord.service,
-			rancherRecord.name + '.' + process.env.ROOT_DOMAIN
-		));
+
+		switch(rancherRecord.type) {
+			case 'A':
+				console.log('adding %s: %s', rancherRecord.name, rancherRecord.ip);
+				tasks.push(provider.createDomainRecord(
+					rancherRecord.name,
+					rancherRecord.ip
+				));
+				tasks.push(cattle.createExternalDnsEvent(
+					rancherRecord.stack,
+					rancherRecord.service,
+					rancherRecord.name + '.' + process.env.ROOT_DOMAIN
+				));
+				break;
+			case 'SRV':
+				console.log('adding %s:%s %s', rancherRecord.name, rancherRecord.port, rancherRecord.ip);
+				tasks.push(provider.createDomainSrvRecord(
+					rancherRecord.name,
+					rancherRecord.ip,
+					rancherRecord.port
+				));
+				break;
+		}
 	}
 
 	return Promise.all(tasks);
@@ -89,6 +126,7 @@ var compareHostsWithContainers = function(res) {
 	var containers = res[1];
 	var stack = res[2];
 	var rancherRecords = [];
+	var port_pattern = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}\:([0-9]{1,5})\:[0-9]{1,5}\/(tcp|udp)$/;
 
 	for(var i in containers){
 		var container = containers[i];
@@ -103,14 +141,37 @@ var compareHostsWithContainers = function(res) {
 			var host = hosts[j];
 
 			if(host.uuid == container.host_uuid){
-				var subdomain = process.env.DOMAIN_PREFIX
-					+ '.' + stack.environment_name
-					+ '.' + container.stack_name
-					+ '.' + container.service_name;
+				var service_info_parts = [
+					process.env.DOMAIN_PREFIX,
+					stack.environment_name,
+					container.stack_name,
+					container.service_name
+				];
+
+				var subdomain = service_info_parts.join('.').toLowerCase();
+				var srv_prefix = '_' + service_info_parts.join('_').toLowerCase();
+
+				for(var k in container.ports) {
+					var port_info = container.ports[k];
+					var match = port_pattern.exec(port_info);
+
+					if(match) {
+						rancherRecords.push({
+							type: 'SRV',
+							name: srv_prefix + '._' + match[2],
+							ip: host.agent_ip,
+							port: match[1],
+							stack: container.stack_name,
+							service: container.service_name
+						});
+					}
+				}
 
 				rancherRecords.push({
+					type: 'A',
 					name: subdomain.toLowerCase(),
 					ip: host.agent_ip,
+					port: null,
 					stack: container.stack_name,
 					service: container.service_name
 				});
@@ -163,7 +224,7 @@ var healthCheck = function(request, response) {
 	]).then(function() {
 		response.writeHead(200, head);
 		response.end('OK');
-	}, function(error, something, somethingelse){
+	}, function(error){
 		response.writeHead(500, head);
 		response.end('FAIL');
 	});

@@ -6,6 +6,8 @@ var cattle = require('./cattle');
 var request = require('request');
 var http = require('http');
 
+console.log('starting');
+
 if(!process.env.ROOT_DOMAIN)
 	throw new Error('Root domain not supplied');
 

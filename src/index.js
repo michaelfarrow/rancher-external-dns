@@ -198,9 +198,9 @@ var compareHostsWithContainers = function(res) {
 				}
 
 				rancherRecords.push({
-					type: 'CNAME',
+					type: 'A',
 					name: subdomain.toLowerCase(),
-					data: host.data,
+					data: host.agent_ip,
 					port: null,
 					stack: container.stack_name,
 					service: container.service_name

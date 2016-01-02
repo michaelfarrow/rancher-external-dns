@@ -4,6 +4,8 @@ dns:
     service: dns
   environment:
     NODE_RUN_ENV: local
+    ROOT_DOMAIN: 
+    DO_ACCESS_TOKEN: 
   volumes:
   - ./src:/usr/src/app
   entrypoint: ./node_modules/nodemon/bin/nodemon.js

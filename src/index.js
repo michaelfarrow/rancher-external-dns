@@ -32,7 +32,7 @@ var addRemoveProviderRecords = function(domainRecords, rancherRecords) {
 	var tasks = [];
 
 	var finalRecords = [];
-	var allowed = ['A', 'SRV'];
+	var allowed = ['A', 'SRV', 'CNAME'];
 
 	for(i in domainRecords){
 		var record = domainRecords[i];
@@ -42,6 +42,7 @@ var addRemoveProviderRecords = function(domainRecords, rancherRecords) {
 
 		switch(record.type) {
 			case 'A':
+			case 'CNAME':
 				if(_s.startsWith(record.name, process.env.DOMAIN_PREFIX + '.'))
 					finalRecords.push(record);
 				break;
@@ -61,7 +62,7 @@ var addRemoveProviderRecords = function(domainRecords, rancherRecords) {
 
 			if( domainRecord.type == rancherRecord.type
 				&& domainRecord.name == rancherRecord.name
-				&& domainRecord.data == rancherRecord.ip
+				&& domainRecord.data == rancherRecord.data
 				&& domainRecord.port == rancherRecord.port
 			) {
 				remove = false;
@@ -82,22 +83,26 @@ var addRemoveProviderRecords = function(domainRecords, rancherRecords) {
 
 		switch(rancherRecord.type) {
 			case 'A':
-				console.log('adding %s: %s', rancherRecord.name, rancherRecord.ip);
+			case 'CNAME':
+				console.log('adding %s %s: %s', rancherRecord.type, rancherRecord.name, rancherRecord.data);
 				tasks.push(provider.createDomainRecord(
+					rancherRecord.type,
 					rancherRecord.name,
-					rancherRecord.ip
+					rancherRecord.data
 				));
-				tasks.push(cattle.createExternalDnsEvent(
-					rancherRecord.stack,
-					rancherRecord.service,
-					rancherRecord.name + '.' + process.env.ROOT_DOMAIN
-				));
+				if(rancherRecord.stack && rancherRecord.service) {
+					tasks.push(cattle.createExternalDnsEvent(
+						rancherRecord.stack,
+						rancherRecord.service,
+						rancherRecord.name + '.' + process.env.ROOT_DOMAIN
+					));
+				}
 				break;
 			case 'SRV':
-				console.log('adding %s:%s %s', rancherRecord.name, rancherRecord.port, rancherRecord.ip);
+				console.log('adding %s %s:%s %s', rancherRecord.type, rancherRecord.name, rancherRecord.port, rancherRecord.data);
 				tasks.push(provider.createDomainSrvRecord(
 					rancherRecord.name,
-					rancherRecord.ip,
+					rancherRecord.data,
 					rancherRecord.port
 				));
 				break;
@@ -128,7 +133,32 @@ var compareHostsWithContainers = function(res) {
 	var rancherRecords = [];
 	var port_pattern = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}\:([0-9]{1,5})\:[0-9]{1,5}\/(tcp|udp)$/;
 
-	for(var i in containers){
+	for(var i in hosts) {
+		var host = hosts[i];
+
+		var host_info_parts = [
+			process.env.DOMAIN_PREFIX,
+			stack.environment_name,
+			'host',
+			host.name
+		];
+
+		var subdomain = host_info_parts.join('.').toLowerCase();
+
+		host.data = subdomain + '.' + process.env.ROOT_DOMAIN;
+
+		rancherRecords.push({
+			type: 'A',
+			name: subdomain.toLowerCase(),
+			data: host.agent_ip,
+			port: null,
+			stack: null,
+			service: null
+		});
+
+	}
+
+	for(var i in containers) {
 		var container = containers[i];
 
 		if(!container.service_name)
@@ -159,18 +189,18 @@ var compareHostsWithContainers = function(res) {
 						rancherRecords.push({
 							type: 'SRV',
 							name: srv_prefix + '._' + match[2],
-							ip: host.agent_ip,
+							data: host.data,
 							port: match[1],
-							stack: container.stack_name,
-							service: container.service_name
+							stack: null,
+							service: null
 						});
 					}
 				}
 
 				rancherRecords.push({
-					type: 'A',
+					type: 'CNAME',
 					name: subdomain.toLowerCase(),
-					ip: host.agent_ip,
+					data: host.data,
 					port: null,
 					stack: container.stack_name,
 					service: container.service_name

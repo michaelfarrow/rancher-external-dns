@@ -1,7 +1,8 @@
 
 var doApi = require('digio-api');
 var Promise = require('promise');
- 
+var _s = require('underscore.string');
+
 var digitalocean = function(){
 	if(!process.env.DO_ACCESS_TOKEN)
 		throw new Error('DigitalOcean API key not supplied');
@@ -71,18 +72,43 @@ digitalocean.prototype = {
 		});
 	},
 
-	getDomainRecords: function(subdomain) {
-		return this.getDomainRecordsPage(subdomain, 1);
+	filterDomainRecords: function(records) {
+		return new Promise(function (resolve, reject) {
+			for(var i in records) {
+				var record = records[i];
+				var ip_pattern = /^(?:[0-9]{1,3}\.){3}[0-9]{1,3}$/;
+				var domain = process.env.ROOT_DOMAIN;
+
+				switch(record.type) {
+					case 'CNAME':
+					case 'SRV':
+						if( !record.data.match(ip_pattern)
+							&& !_s.endsWith(record.name, domain))
+							record.data += '.' + domain;
+						break;
+					}
+			}
+
+			resolve(records);
+		});
 	},
 
-	createDomainRecord: function(subdomain, ip) {
+	getDomainRecords: function(subdomain) {
+		return this.getDomainRecordsPage(subdomain, 1)
+		.then(this.filterDomainRecords);
+	},
+
+	createDomainRecord: function(type, subdomain, data) {
 		var api = this.api;
 		var domain = this.domain;
 
+		if(type == 'CNAME')
+			data += '.'
+
 		return new Promise(function (resolve, reject) {
-			api.domains.create_record(domain, 'A')
+			api.domains.create_record(domain, type)
 				.name(subdomain)
-				.data(ip)
+				.data(data)
 				.do(function (err, data) {
 					if(err) {
 						reject(err);
@@ -93,14 +119,14 @@ digitalocean.prototype = {
 		});
 	},
 
-	createDomainSrvRecord: function(subdomain, ip, port) {
+	createDomainSrvRecord: function(subdomain, data, port) {
 		var api = this.api;
 		var domain = this.domain;
 
 		return new Promise(function (resolve, reject) {
 			api.domains.create_record(domain, 'SRV')
 				.name(subdomain)
-				.data(ip + '.')
+				.data(data + '.')
 				.priority(0)
 				.port(port)
 				.weight(0)
